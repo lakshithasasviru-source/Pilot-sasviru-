@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Sri Lanka 3D Flight Simulator</title>
+    <!-- CesiumJS CSS & JS -->
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+        html, body, #cesiumContainer { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+        
+        /* HUD Top Bar */
+        #hud-top {
+            position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+            background: rgba(10, 25, 47, 0.85); border: 2px solid #00f0ff;
+            border-radius: 12px; padding: 8px 16px; display: flex; gap: 15px;
+            color: #00f0ff; font-family: monospace; font-size: 14px; font-weight: bold;
+            box-shadow: 0 0 15px rgba(0,240,255,0.4); z-index: 10;
+        }
+
+        /* Location Selector & Camera Toggle */
+        #menu-bar {
+            position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 8px; z-index: 10; flex-wrap: wrap; justify-content: center;
+        }
+        .btn {
+            background: rgba(0, 0, 0, 0.7); color: #fff; border: 1px solid #00f0ff;
+            padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: bold;
+            cursor: pointer; backdrop-filter: blur(4px);
+        }
+        .btn:active { background: #00f0ff; color: #000; }
+
+        /* Mobile Controls Overlay */
+        #controls {
+            position: absolute; bottom: 20px; left: 0; width: 100%; height: 160px;
+            display: flex; justify-content: space-between; padding: 0 20px;
+            pointer-events: none; z-index: 10;
+        }
+
+        /* Joysticks & Sliders */
+        .touch-area {
+            pointer-events: auto; width: 130px; height: 130px;
+            background: rgba(0, 240, 255, 0.15); border: 2px solid rgba(0, 240, 255, 0.6);
+            border-radius: 50%; position: relative; display: flex;
+            align-items: center; justify-content: center; touch-action: none;
+        }
+        .stick {
+            width: 50px; height: 50px; background: #00f0ff; border-radius: 50%;
+            position: absolute; box-shadow: 0 0 10px #00f0ff;
+        }
+
+        /* Altitude Controls Right */
+        .slider-box {
+            pointer-events: auto; display: flex; flex-direction: column; gap: 10px;
+        }
+        .alt-btn {
+            width: 60px; height: 55px; background: rgba(0,0,0,0.7); border: 2px solid #00f0ff;
+            color: #00f0ff; font-size: 20px; font-weight: bold; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .alt-btn:active { background: #00f0ff; color: #000; }
+    </style>
+</head>
+<body>
+
+    <div id="cesiumContainer"></div>
+
+    <!-- Telemetry HUD -->
+    <div id="hud-top">
+        <div>SPD: <span id="spd">0</span> KM/H</div>
+        <div>ALT: <span id="alt">0</span> M</div>
+        <div>HDG: <span id="hdg">0</span>°</div>
+    </div>
+
+    <!-- Quick Location Menu -->
+    <div id="menu-bar">
+        <button class="btn" onclick="teleport(7.9570, 80.7603, 600)">🏰 Sigiriya</button>
+        <button class="btn" onclick="teleport(6.9271, 79.8612, 500)">🏙️ Colombo</button>
+        <button class="btn" onclick="teleport(6.8096, 80.7891, 2600)">🏔️ Pidurutalagala</button>
+        <button class="btn" onclick="teleport(6.8667, 81.0466, 1200)">⛰️ Ella Gap</button>
+        <button class="btn" onclick="teleport(7.2906, 80.6337, 700)">🌊 Kandy</button>
+    </div>
+
+    <!-- Touch Controls for Android Phone -->
+    <div id="controls">
+        <!-- Left Joystick (Pitch & Roll / Steering) -->
+        <div class="touch-area" id="joyLeft">
+            <div class="stick" id="stickLeft"></div>
+        </div>
+
+        <!-- Right Buttons (Altitude UP / DOWN & Thrust) -->
+        <div class="slider-box">
+            <div class="alt-btn" id="btnUp">▲</div>
+            <div class="alt-btn" id="btnDown">▼</div>
+        </div>
+    </div>
+
+    <script>
+        // Set User Access Token
+        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IklMQmQxZThRR2lrWFp4UUMiLCJqdGkiOiJlOWE1OTliZC0xOGFkLTRiMjItOTRiNi0yZThkN2JlM2NlZDMiLCJpZCI6NTM3MTYyLCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3OTMxODg3MTV9.idcfrLr-vZvgv5dgTet4j6CJ7tET4YFOo1paC9BrqXQ';
+
+        // Initialize 3D Cesium Viewer
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            terrainProvider: Cesium.createWorldTerrain(),
+            animation: false,
+            timeline: false,
+            geocoder: false,
+            homeButton: false,
+            sceneModePicker: false,
+            navigationHelpButton: false,
+            baseLayerPicker: false
+        });
+
+        // Flight Physics Variables
+        let lat = 7.9570;
+        let lon = 80.7603;
+        let alt = 600;
+        let heading = 0;
+        let pitch = 0;
+        let roll = 0;
+        let speed = 120; // km/h
+
+        let joyX = 0, joyY = 0;
+        let altChange = 0;
+
+        // Teleport Function
+        function teleport(newLat, newLon, newAlt) {
+            lat = newLat; lon = newLon; alt = newAlt;
+        }
+
+        // Setup Joystick Events
+        const joyLeft = document.getElementById('joyLeft');
+        const stickLeft = document.getElementById('stickLeft');
+
+        joyLeft.addEventListener('touchmove', (e) => {
+            const rect = joyLeft.getBoundingClientRect();
+            const touch = e.touches[0];
+            let x = touch.clientX - rect.left - rect.width / 2;
+            let y = touch.clientY - rect.top - rect.height / 2;
+            const dist = Math.min(Math.hypot(x, y), 50);
+            const angle = Math.atan2(y, x);
+
+            joyX = (Math.cos(angle) * dist) / 50;
+            joyY = (Math.sin(angle) * dist) / 50;
+
+            stickLeft.style.transform = `translate(${joyX * 40}px, ${joyY * 40}px)`;
+        });
+
+        joyLeft.addEventListener('touchend', () => {
+            joyX = 0; joyY = 0;
+            stickLeft.style.transform = `translate(0px, 0px)`;
+        });
+
+        // Altitude Buttons
+        const btnUp = document.getElementById('btnUp');
+        const btnDown = document.getElementById('btnDown');
+
+        btnUp.addEventListener('touchstart', () => altChange = 2);
+        btnUp.addEventListener('touchend', () => altChange = 0);
+        btnDown.addEventListener('touchstart', () => altChange = -2);
+        btnDown.addEventListener('touchend', () => altChange = 0);
+
+        // Main Flight Loop
+        viewer.clock.onTick.addEventListener(() => {
+            // Steering Logic
+            heading += joyX * 1.5;
+            pitch = -joyY * 20;
+
+            alt += altChange + (pitch * 0.1);
+            if (alt < 100) alt = 100;
+
+            // Update Lat/Lon Position based on Speed & Heading
+            const speedMps = speed / 3.6;
+            const radH = Cesium.Math.toRadians(heading);
+
+            lat += (Math.cos(radH) * speedMps * 0.016) / 111111;
+            lon += (Math.sin(radH) * speedMps * 0.016) / (111111 * Math.cos(Cesium.Math.toRadians(lat)));
+
+            // Update Camera in 3D Space
+            viewer.camera.setView({
+                destination: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+                orientation: {
+                    heading: Cesium.Math.toRadians(heading),
+                    pitch: Cesium.Math.toRadians(pitch - 5),
+                    roll: 0
+                }
+            });
+
+            // Update Telemetry Display
+            document.getElementById('spd').innerText = Math.round(speed);
+            document.getElementById('alt').innerText = Math.round(alt);
+            document.getElementById('hdg').innerText = Math.round((heading % 360 + 360) % 360);
+        });
+    </script>
+</body>
+  </html>
+  
